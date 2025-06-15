@@ -2,9 +2,6 @@
 
 namespace App\Services;
 
-use App\Models\Parameter;
-use App\Models\ParameterValue;
-use App\Models\Product;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 use Saloon\XmlWrangler\XmlReader;
@@ -16,10 +13,11 @@ use function Laravel\Prompts\info;
 class XmlImportService
 {
     private int $count = 1;
-    private int $total = 0;
 
     public function import(string $path): int
     {
+        DB::beginTransaction();
+
         try {
             $reader = XmlReader::fromFile($path);
 
@@ -27,7 +25,7 @@ class XmlImportService
 
             /** @var Element $offer */
             foreach ($offers as $offer) {
-                info('Importing offer #' . $this->count . ' of ' . $this->total);
+                info('Importing offer #' . $this->count);
 
                 /** @var Element[] $data */
                 $data = $offer->getContent();
@@ -39,7 +37,7 @@ class XmlImportService
                 $product['available'] = (bool)$offer->getAttribute('available');
                 $product['stock'] = (int)$data['stock_quantity']->getContent();
 
-                $productModel = Product::create($product);
+                $productId = DB::table('products')->insertGetId($product);
 
                 /** @var Element[] $params */
                 $params = $data['param']->getContent();
@@ -48,30 +46,35 @@ class XmlImportService
                     $slug = Str::slug($name);
                     $value = $param->getContent();
 
-                    $paramModel = Parameter::firstOrCreate(
-                        ['slug' => $slug],
-                        ['name' => $name, 'slug' => $slug]
-                    );
+                    //Insert parameter name if new
+                    $paramId = DB::table('parameters')->where('slug', $slug)->value('id');
+                    if ($paramId === null)
+                        $paramId = DB::table('parameters')->insertGetId(['name' => $name, 'slug' => $slug]);
 
-                    $paramValueModel = ParameterValue::firstOrCreate(
-                        ['value' => $value],
-                        ['parameter_id' => $paramModel->id, 'value' => $value]
-                    );
+                    //Insert parameter value if new
+                    $paramValId = DB::table('parameter_values')->where('parameter_id', $paramId)
+                        ->where('value', $value)->value('id');
+                    if ($paramValId === null)
+                        $paramValId = DB::table('parameter_values')->insertGetId(['parameter_id' => $paramId,
+                            'value' => $value]);
 
-                    $exists = DB::table('product_parameters')->where('product_id', $productModel->id)
-                        ->where('parameter_value_id', $paramValueModel->id)->exists();
+                    //Insert product parameter relation if new
+                    DB::table('product_parameters')->insertOrIgnore(['product_id' => $productId,
+                        'parameter_value_id' => $paramValId]);
 
-                    if (!$exists)
-                        DB::table('product_parameters')->insert(['product_id' => $productModel->id,
-                            'parameter_value_id' => $paramValueModel->id]);
                 }
 
                 $this->count++;
             }
+
+
         } catch (Throwable $e) {
             error($e->getMessage());
+            DB::rollBack();
+            return 1;
         }
 
+        DB::commit();
         return 0;
     }
 
