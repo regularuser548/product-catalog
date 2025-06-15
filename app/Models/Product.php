@@ -28,7 +28,7 @@ class Product extends Model
      */
     public function parameterValues(): BelongsToMany
     {
-        return $this->belongsToMany(ParameterValue::class)->withTimestamps();
+        return $this->belongsToMany(ParameterValue::class, 'product_parameters')->withTimestamps();
     }
 
     /**
