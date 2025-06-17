@@ -27,6 +27,9 @@ class XmlImportService
             foreach ($offers as $offer) {
                 info('Importing offer #' . $this->count);
 
+                //Invalid field marker
+                $hasInvalidFields = false;
+
                 /** @var Element[] $data */
                 $data = $offer->getContent();
 
@@ -37,14 +40,35 @@ class XmlImportService
                 $product['available'] = (bool)$offer->getAttribute('available');
                 $product['stock'] = (int)$data['stock_quantity']->getContent();
 
-                $productId = DB::table('products')->insertGetId($product);
-
                 /** @var Element[] $params */
                 $params = $data['param']->getContent();
+
+                //Validate product fields
+                foreach ($product as $field) {
+                    if ($field === null || $field === '')
+                        $hasInvalidFields = true;
+                }
+                //Validate parameter fields
+                foreach ($params as $param) {
+                    $name = $param->getAttribute('name');
+                    $value = $param->getContent();
+                    if ($name === null || $name === '' || $value === null || $value === '' || $value === "<>")
+                        $hasInvalidFields = true;
+                }
+
+                if ($hasInvalidFields) {
+                    error('Invalid fields detected, skipping.');
+                    continue;
+                }
+
+                //Insert product
+                $productId = DB::table('products')->insertGetId($product);
+
                 foreach ($params as $param) {
                     $name = $param->getAttribute('name');
                     $slug = Str::slug($name);
                     $value = $param->getContent();
+                    $valueSlug = Str::slug($value);
 
                     //Insert parameter name if new
                     $paramId = DB::table('parameters')->where('slug', $slug)->value('id');
@@ -53,10 +77,10 @@ class XmlImportService
 
                     //Insert parameter value if new
                     $paramValId = DB::table('parameter_values')->where('parameter_id', $paramId)
-                        ->where('value', $value)->value('id');
+                        ->where('slug', $valueSlug)->value('id');
                     if ($paramValId === null)
                         $paramValId = DB::table('parameter_values')->insertGetId(['parameter_id' => $paramId,
-                            'value' => $value]);
+                            'slug' => $valueSlug, 'value' => $value]);
 
                     //Insert product parameter relation if new
                     DB::table('product_parameters')->insertOrIgnore(['product_id' => $productId,
