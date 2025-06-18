@@ -16,6 +16,7 @@ class ParameterValue extends Model
     protected $fillable = [
         'parameter_id',
         'value',
+        'slug',
     ];
 
     /**
