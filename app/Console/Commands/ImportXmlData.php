@@ -2,6 +2,7 @@
 
 namespace App\Console\Commands;
 
+use App\Services\RedisFilterService;
 use App\Services\XmlImportService;
 use Carbon\Carbon;
 use Illuminate\Console\Command;
@@ -25,7 +26,7 @@ class ImportXmlData extends Command
     /**
      * Execute the console command.
      */
-    public function handle(XmlImportService $service): void
+    public function handle(XmlImportService $xmlImportService, RedisFilterService $redisFilterService): void
     {
         $path = $this->argument('path');
 
@@ -37,12 +38,14 @@ class ImportXmlData extends Command
         $this->info("Importing data from: $path");
 
         $startTimestamp = now();
-        $this->info('Started at: ' . now()->toDateTimeString());
 
-        $service->import($path);
+        $xmlImportService->import($path);
 
         $this->info('Import complete.');
-        $this->info('Finished at: ' . now()->toDateTimeString());
+
+        $this->info('Rebuilding filters...');
+        $redisFilterService->rebuild();
+
         $this->info('Total time: ' . $startTimestamp->diffForHumans(Carbon::now(), true));
     }
 }
