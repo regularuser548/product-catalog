@@ -69,7 +69,7 @@ class RedisFilterService
         $keys = $this->buildFilterKeys($activeFilters);
         $keys[] = $this->buildKey($paramSlug, $valueSlug);
 
-        return count($this->redis->sinter($keys));
+        return $this->redis->sintercard($keys);
     }
 
     protected function buildKey(string $paramSlug, string $valueSlug): string
