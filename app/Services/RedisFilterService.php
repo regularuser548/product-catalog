@@ -9,6 +9,9 @@ use function Laravel\Prompts\info;
 
 class RedisFilterService
 {
+    const UNION_KEY_TTL = 60;
+    const PRODUCTS_PER_CHUNK = 500;
+
     protected Connection $redis;
 
     public function __construct()
@@ -32,7 +35,7 @@ class RedisFilterService
         $this->clearAll();
 
 
-        Product::with('parameterValues.parameter')->chunk(500, function ($products) {
+        Product::with('parameterValues.parameter')->chunk(self::PRODUCTS_PER_CHUNK, function ($products) {
             $this->redis->pipeline(function ($pipe) use ($products) {
                 foreach ($products as $product) {
                     foreach ($product->parameterValues as $value) {
@@ -72,17 +75,49 @@ class RedisFilterService
         return $this->redis->sintercard($keys);
     }
 
+    protected function getOrCreateUnionKey(string $paramSlug, array $valueSlugs): string
+    {
+        $key = $this->buildUnionKey($paramSlug, $valueSlugs);
+
+        if (!$this->redis->exists($key)) {
+            $keys = [];
+            foreach ($valueSlugs as $valueSlug) {
+                $keys[] = $this->buildKey($paramSlug, $valueSlug);
+            }
+            $this->redis->sunionstore($key, ...$keys);
+        }
+
+        //Bump TTL
+        $this->redis->expire($key, self::UNION_KEY_TTL);
+
+        return $key;
+    }
+
     protected function buildKey(string $paramSlug, string $valueSlug): string
     {
         return "{$paramSlug}:{$valueSlug}";
+    }
+
+    protected function buildUnionKey(string $paramSlug, array $valueSlugs): string
+    {
+        //Dedupe and sort
+        $valueSlugs = array_unique($valueSlugs);
+        sort($valueSlugs);
+
+        return "temp:union:{$paramSlug}:" . implode(',', $valueSlugs);
     }
 
     protected function buildFilterKeys(array $filters): array
     {
         $keys = [];
 
-        foreach ($filters as $paramSlug => $valueSlugs) {
-            foreach ((array)$valueSlugs as $valueSlug) {
+        foreach ($filters as $paramSlug => $valueSlug) {
+            if (is_array($valueSlug) && count($valueSlug) > 1) {
+                $keys[] = $this->getOrCreateUnionKey($paramSlug, $valueSlug);
+            } else {
+                //Handle array with one element
+                $valueSlug = is_array($valueSlug) ? $valueSlug[0] : $valueSlug;
+
                 $keys[] = $this->buildKey($paramSlug, $valueSlug);
             }
         }
