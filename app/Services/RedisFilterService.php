@@ -64,16 +64,26 @@ class RedisFilterService
     }
 
     /**
-     * Get the number of products for a specific filter value, taking into account the current filters.
+     * Get the number of products for a specific filter value.
      *
      */
-    public function getCountForValue(array $activeFilters, string $paramSlug, string $valueSlug): int
+    public function getCountForFilterValue(string $paramSlug, string $valueSlug): int
     {
-        $keys = $this->buildFilterKeys($activeFilters);
-        $keys[] = $this->buildKey($paramSlug, $valueSlug);
+        $key = $this->buildKey($paramSlug, $valueSlug);
 
-        return $this->redis->sintercard($keys);
+        return $this->redis->scard($key);
     }
+
+    /**
+     * Get count of products that match the specified filters.
+     */
+    public function getCountForMatchingFilters(array $filters): int
+    {
+        $keys = $this->buildFilterKeys($filters);
+
+        return $keys ? $this->redis->sintercard($keys) : 0;
+    }
+
 
     protected function getOrCreateUnionKey(string $paramSlug, array $valueSlugs): string
     {
