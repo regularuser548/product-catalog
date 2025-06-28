@@ -21,7 +21,7 @@ trait FilterUtils
             if (is_string($value) && $valueSlug === $value)
                 return true;
 
-            if (in_array($valueSlug, $value, true))
+            else if (is_array($value) && in_array($valueSlug, $value, true))
                 return true;
         }
         return false;
