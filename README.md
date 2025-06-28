@@ -17,21 +17,18 @@ cd product-catalog
 alias sail='[ -f sail ] && sh sail || sh vendor/bin/sail'
 cp .env.example .env
 sail up -d
-sail composer i && sail npm i && sail artisan key:generate && sail artisan storage:link && sail artisan migrate && sail artisan db:seed
+sail composer i && sail artisan key:generate && sail artisan migrate
 ```
 
-**3. Open App**:
-> http://localhost
-
-**4. Run Product Import**:
+**3. Run Product Import**:
 ```bash 
 sail artisan import:xml "path_to_file"
 ```
 
-**5. Product Endpoint Example**:
+**4. Product Endpoint Example**:
 
 `http://localhost/api/catalog/products?filter[kolir][]=sinii&filter[kolir][]=chornii`
 
-**6. Filters Endpoint Example**:
+**5. Filters Endpoint Example**:
 
 `http://localhost/api/catalog/filters?filter[kolir][]=sinii&filter[kolir][]=chornii`
