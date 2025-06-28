@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
+use App\Traits\FilterUtils;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use App\Models\Parameter;
@@ -11,6 +12,8 @@ use Illuminate\Support\Facades\Cache;
 
 class FilterController extends Controller
 {
+    use FilterUtils;
+
     private RedisFilterService $filterService;
 
     public function __construct(RedisFilterService $service)
@@ -25,6 +28,11 @@ class FilterController extends Controller
     public function index(Request $request): JsonResponse
     {
         $activeFilters = $request->input('filter');
+
+        //Sort filters
+        if (is_array($activeFilters)) {
+            $this->sortFilters($activeFilters);
+        }
 
         $parameters = Cache::remember('all_parameters', now()->addMinutes(30), function () {
             return Parameter::with('parameterValues')->get();
@@ -48,8 +56,7 @@ class FilterController extends Controller
             foreach ($parameter->parameterValues as $key => $value) {
                 $valueSlug = $value->slug;
                 $count = $counts[$key];
-                //dd($valueSlug);
-                $isActive = is_array($activeFilters) && in_array($valueSlug, $activeFilters); //TODO: fix
+                $isActive = is_array($activeFilters) && $this->isFilterActive($valueSlug, $activeFilters);
 
                 $filterData['values'][] = [
                     'value' => $value->value,
@@ -76,7 +83,7 @@ class FilterController extends Controller
     /**
      * Calculate count:
      * - If no active filters: total count for each value
-     * - If active filters exist: count of products that match current active filters and each value
+     * - If active filters exist: count of products that match current active filters for each value
      *
      */
     private function calculateCounts(?array $activeFilters, string $parameter_slug, array $parameterValues): array
@@ -93,7 +100,7 @@ class FilterController extends Controller
             return $this->filterService->getBatchCounts($keys);
         }
 
-
+        // If active filters present - return count of products that match current active filters for each value
         foreach ($parameterValues as $value) {
             $keys[] = array_merge($activeFilters, [$parameter_slug => $value]);
         }
