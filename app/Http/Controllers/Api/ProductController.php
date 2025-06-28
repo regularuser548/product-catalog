@@ -5,11 +5,14 @@ namespace App\Http\Controllers\Api;
 use App\Http\Controllers\Controller;
 use App\Models\Product;
 use App\Services\RedisFilterService;
+use App\Traits\FilterUtils;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 
 class ProductController extends Controller
 {
+    use FilterUtils;
+
     private array $sortFields = [
         'id',
         'price',
@@ -31,6 +34,7 @@ class ProductController extends Controller
         $query = Product::query();
 
         if (is_array($filters)) {
+            $this->sortFilters($filters);
             $query->whereIn('id', $this->filterService->getMatchingProductIds($filters));
         }
 
