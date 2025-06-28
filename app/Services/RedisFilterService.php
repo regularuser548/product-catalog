@@ -100,17 +100,14 @@ class RedisFilterService
 
     protected function buildFilterKeys(array $filters): array
     {
-        //Dedupe and sort
-        //$filters = array_unique($filters);
-        //sort($filters);
-
         $keys = [];
 
         foreach ($filters as $paramSlug => $valueSlug) {
+            //If a filter has more than one value, build a union key
             if (is_array($valueSlug) && count($valueSlug) > 1) {
                 $keys[] = $this->getOrCreateUnionKey($paramSlug, $valueSlug);
             } else {
-                //Handle array with one element
+                //Handle an array with one element
                 $valueSlug = is_array($valueSlug) ? $valueSlug[0] : $valueSlug;
 
                 $keys[] = $this->buildKey($paramSlug, $valueSlug);
@@ -134,21 +131,26 @@ class RedisFilterService
     {
         $key = $this->buildUnionKey($paramSlug, $valueSlugs);
 
+        //Return key quickly from the cache
         if (isset($this->localUnionKeyCache[$key])) {
             return $key;
         }
+
+        //Create a key if not exists
         if (!$this->redis->exists($key)) {
             $keys = [];
             foreach ($valueSlugs as $valueSlug) {
                 $keys[] = $this->buildKey($paramSlug, $valueSlug);
             }
             $this->redis->sunionstore($key, ...$keys);
-            $this->redis->expire($key, self::UNION_KEY_TTL);
 
         }
+
+        //Put new key in cache
         $this->localUnionKeyCache[$key] = true;
-        //Bump TTL
-        //$this->redis->expire($key, self::UNION_KEY_TTL);
+
+        //Bump key TTL
+        $this->redis->expire($key, self::UNION_KEY_TTL);
 
         return $key;
     }
