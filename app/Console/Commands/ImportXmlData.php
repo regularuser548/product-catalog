@@ -6,6 +6,7 @@ use App\Services\RedisFilterService;
 use App\Services\XmlImportService;
 use Carbon\Carbon;
 use Illuminate\Console\Command;
+use Illuminate\Support\Facades\Cache;
 
 class ImportXmlData extends Command
 {
@@ -35,16 +36,17 @@ class ImportXmlData extends Command
             return;
         }
 
-        $this->info("Importing data from: $path");
-
         $startTimestamp = now();
 
+        $this->info("Importing data from: $path");
         $xmlImportService->import($path);
-
         $this->info('Import complete.');
 
         $this->info('Rebuilding filters...');
         $redisFilterService->rebuild();
+
+        $this->info('Flushing cache...');
+        Cache::flush();
 
         $this->info('Total time: ' . $startTimestamp->diffForHumans(Carbon::now(), true));
     }
