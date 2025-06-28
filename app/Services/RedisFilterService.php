@@ -1,11 +1,13 @@
 <?php
+/** @noinspection PhpUndefinedMethodInspection */
+
+/** @noinspection PhpPossiblePolymorphicInvocationInspection */
 
 namespace App\Services;
 
 use Illuminate\Redis\Connections\Connection;
 use Illuminate\Support\Facades\Redis;
 use App\Models\Product;
-use function Laravel\Prompts\info;
 
 class RedisFilterService
 {
@@ -13,6 +15,8 @@ class RedisFilterService
     const PRODUCTS_PER_CHUNK = 500;
 
     protected Connection $redis;
+
+    protected array $localUnionKeyCache = [];
 
     public function __construct()
     {
@@ -35,20 +39,21 @@ class RedisFilterService
         $this->clearAll();
 
 
-        Product::with('parameterValues.parameter')->chunk(self::PRODUCTS_PER_CHUNK, function ($products) {
-            $this->redis->pipeline(function ($pipe) use ($products) {
-                foreach ($products as $product) {
-                    foreach ($product->parameterValues as $value) {
-                        $key = $this->buildKey(
-                            $value->parameter->slug,
-                            $value->slug
-                        );
+        Product::with('parameterValues.parameter')->chunk(self::PRODUCTS_PER_CHUNK,
+            function ($products) {
+                $this->redis->pipeline(function ($pipe) use ($products) {
+                    foreach ($products as $product) {
+                        foreach ($product->parameterValues as $value) {
+                            $key = $this->buildKey(
+                                $value->parameter->slug,
+                                $value->slug
+                            );
 
-                        $pipe->sadd($key, $product->id);
+                            $pipe->sadd($key, $product->id);
+                        }
                     }
-                }
+                });
             });
-        });
 
     }
 
@@ -64,61 +69,41 @@ class RedisFilterService
     }
 
     /**
-     * Get the number of products for a specific filter value.
-     *
+     * Get counts for multiple keys in a batch.
      */
-    public function getCountForFilterValue(string $paramSlug, string $valueSlug): int
+    public function getBatchCounts(array $keys): array
     {
-        $key = $this->buildKey($paramSlug, $valueSlug);
-
-        return $this->redis->scard($key);
+        return $this->redis->pipeline(function ($pipe) use ($keys) {
+            foreach ($keys as $key) {
+                $pipe->scard($key);
+            }
+        });
     }
 
     /**
-     * Get count of products that match the specified filters.
+     * Get counts for multiple keys in a batch, taking into account current active filters.
      */
-    public function getCountForMatchingFilters(array $filters): int
+    public function getBatchCountsForActiveFilters(array $filterSets): array
     {
-        $keys = $this->buildFilterKeys($filters);
-
-        return $keys ? $this->redis->sintercard($keys) : 0;
-    }
-
-
-    protected function getOrCreateUnionKey(string $paramSlug, array $valueSlugs): string
-    {
-        $key = $this->buildUnionKey($paramSlug, $valueSlugs);
-
-        if (!$this->redis->exists($key)) {
-            $keys = [];
-            foreach ($valueSlugs as $valueSlug) {
-                $keys[] = $this->buildKey($paramSlug, $valueSlug);
-            }
-            $this->redis->sunionstore($key, ...$keys);
+        $keys = [];
+        foreach ($filterSets as $filters) {
+            $keys [] = $this->buildFilterKeys($filters);
         }
 
-        //Bump TTL
-        $this->redis->expire($key, self::UNION_KEY_TTL);
+        return $this->redis->pipeline(function ($pipe) use ($filterSets, $keys) {
+            foreach ($filterSets as $key => $value) {
+                $pipe->sintercard($keys[$key]);
+            }
+        });
 
-        return $key;
-    }
-
-    protected function buildKey(string $paramSlug, string $valueSlug): string
-    {
-        return "{$paramSlug}:{$valueSlug}";
-    }
-
-    protected function buildUnionKey(string $paramSlug, array $valueSlugs): string
-    {
-        //Dedupe and sort
-        $valueSlugs = array_unique($valueSlugs);
-        sort($valueSlugs);
-
-        return "temp:union:{$paramSlug}:" . implode(',', $valueSlugs);
     }
 
     protected function buildFilterKeys(array $filters): array
     {
+        //Dedupe and sort
+        //$filters = array_unique($filters);
+        //sort($filters);
+
         $keys = [];
 
         foreach ($filters as $paramSlug => $valueSlug) {
@@ -134,4 +119,38 @@ class RedisFilterService
 
         return $keys;
     }
+
+    protected function buildKey(string $paramSlug, string $valueSlug): string
+    {
+        return "$paramSlug:$valueSlug";
+    }
+
+    protected function buildUnionKey(string $paramSlug, array $valueSlugs): string
+    {
+        return "temp:union:$paramSlug:" . implode(',', $valueSlugs);
+    }
+
+    protected function getOrCreateUnionKey(string $paramSlug, array $valueSlugs): string
+    {
+        $key = $this->buildUnionKey($paramSlug, $valueSlugs);
+
+        if (isset($this->localUnionKeyCache[$key])) {
+            return $key;
+        }
+        if (!$this->redis->exists($key)) {
+            $keys = [];
+            foreach ($valueSlugs as $valueSlug) {
+                $keys[] = $this->buildKey($paramSlug, $valueSlug);
+            }
+            $this->redis->sunionstore($key, ...$keys);
+            $this->redis->expire($key, self::UNION_KEY_TTL);
+
+        }
+        $this->localUnionKeyCache[$key] = true;
+        //Bump TTL
+        //$this->redis->expire($key, self::UNION_KEY_TTL);
+
+        return $key;
+    }
+
 }
