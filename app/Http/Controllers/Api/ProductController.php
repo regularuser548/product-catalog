@@ -38,6 +38,9 @@ class ProductController extends Controller
             $query->whereIn('id', $this->filterService->getMatchingProductIds($filters));
         }
 
+        if ($query->count() === 0)
+            return response()->json(['message' => 'No products found.'], 404);
+
         if ($sort) {
             [$field, $direction] = explode('_', $sort);
             if (in_array($field, $this->sortFields) && in_array($direction, ['asc', 'desc']))
